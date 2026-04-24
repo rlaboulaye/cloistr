@@ -43,16 +43,18 @@ When sex is part of the metadata, stages 1–2 run with the database partitioned
 
 Each query GMM lives in $\mathbb{R}^d$ where
 $$d = k_{\text{used}} + \mathbb{1}[\text{age in mode}],$$
-with $k_{\text{used}}$ the number of leading PCs the query side decided to use. The db is projected into the same space using the leading $k_{\text{used}}$ columns of its PCA matrix, with age z-scored against the database-wide $(\hat{\mu}_{\text{age}}, \hat{\sigma}_{\text{age}})$ stored in the manifest. (The z-score is the same one glad-prep applied to query ages, so both sides live in the same coordinate system.)
+with $k_{\text{used}}$ the number of leading PCs the query side decided to use. The db is projected into the same space using the leading $k_{\text{used}}$ columns of its PCA matrix, with age z-scored against the database-wide $(\hat{\mu}_{\text{age}}, \hat{\sigma}_{\text{age}})$ and then rescaled by $1/\sqrt{N}$ where $N$ is the number of reference samples (`n_db_samples` in `glad_meta.json`):
+$$a_i^{\text{feat}} = \frac{a_i - \hat{\mu}_{\text{age}}}{\hat{\sigma}_{\text{age}}} \cdot \frac{1}{\sqrt{N}}.$$
+This brings the age feature to the same per-dimension standard deviation as the PC eigenvec coordinates, which are exactly $1/\sqrt{N}$ by the orthonormality of the left singular vectors. Without this rescaling, z-scored age (sd $\approx 1$) is $\sim N$ times larger in variance than any single PC (sd $\approx 1/\sqrt{N}$), which dominates the GMM EM initialization and prevents ancestry-based component separation. The same transformation is applied on both sides (glad-prep when fitting the GMM, glad-match when building db feature vectors), so query and db live in the same coordinate system.
 
 ### 3.2 Cost matrix
 
 For db sample $i$ and GMM component $k$ with mean $\boldsymbol{\mu}_k$ and full covariance $\boldsymbol{\Sigma}_k$,
-$$C_{i,k} = (\mathbf{f}_i - \boldsymbol{\mu}_k)^\top \boldsymbol{\Sigma}_k^{-1} (\mathbf{f}_i - \boldsymbol{\Sigma}_k).$$
+$$C_{i,k} = (\mathbf{f}_i - \boldsymbol{\mu}_k)^\top \boldsymbol{\Sigma}_k^{-1} (\mathbf{f}_i - \boldsymbol{\mu}_k).$$
 
 We never form $\boldsymbol{\Sigma}_k^{-1}$. Instead, for each component we Cholesky-decompose $\boldsymbol{\Sigma}_k = L_k L_k^\top$, then for each sample solve $L_k \mathbf{z} = \mathbf{f}_i - \boldsymbol{\mu}_k$ by forward substitution and set $C_{i,k} = \|\mathbf{z}\|_2^2$. This is numerically stable and cheap at our sizes ($d \leq \sim 31$). The implementation uses a hand-rolled Cholesky in pure Rust, avoiding a BLAS dependency.
 
-The Mahalanobis cost is preferred over weighted Euclidean (with weights from variance-explained ratios) because the GMM's full covariance already encodes scale and correlation in feature space. PC weighting via variance explained would double-count; age vs. PC scaling is handled implicitly by the covariance.
+The Mahalanobis cost is preferred over weighted Euclidean (with weights from variance-explained ratios) because the GMM's full covariance already encodes scale and correlation in feature space. PC weighting via variance explained would double-count. Age vs. PC scaling is handled explicitly by the $1/\sqrt{N}$ rescaling described in §3.1 — all features enter the GMM fit on the same scale, so the covariance captures genuine correlation structure rather than absorbing a four-order-of-magnitude raw scale difference.
 
 ### 3.3 Mass scaling and the unbalanced solver
 
@@ -204,7 +206,7 @@ End-to-end target on a workstation is single-digit minutes for production-sized 
 - **Strict sex / age matching** is not yet exposed. The filter layer is the right home: pre-restrict the db to a tight age window and/or only one sex, then run the existing pipeline.
 - **phs-cohort exclusion** is wired through `FilterSpec` but waits on a `phs_cohort` column being added to the preprocessed db_pack.
 - **Differential privacy** on the aggregate demographics output is not yet applied; k-anonymity suppression is a first cut.
-- **BIC-based GMM component selection** in glad-prep would pick smaller $K$ for small queries and larger $K$ for big ones; the current heuristic ($K = n_Q / 200$, capped at 8) is a placeholder.
+- **BIC-based GMM component selection** is implemented in glad-prep (up to 5 components, 5 random restarts per $K$), but the upper cap of 5 may be too low for highly heterogeneous query cohorts.
 - **Refinement median structure**: a heap-or-tree-backed running median would replace the per-evaluation $O(|\mathcal{S}_a|)$ scan with $O(\log |\mathcal{S}_a|)$ updates if profiling identifies the median as a bottleneck on production-sized inputs.
 
 ## 11. References
