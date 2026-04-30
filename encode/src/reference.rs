@@ -5,8 +5,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub const N_PCS: usize = 30;
-
 /// One SNP entry from pca_weights.tsv.gz
 #[derive(Debug, Clone)]
 pub struct SnpWeight {
@@ -15,7 +13,7 @@ pub struct SnpWeight {
     pub effect_allele: String,
     pub other_allele: String,
     pub effect_allele_freq: f64,
-    pub weights: [f64; N_PCS],
+    pub weights: Vec<f64>,
 }
 
 /// Contents of manifest.json (from ref_pack/)
@@ -43,14 +41,9 @@ pub fn load_weights(path: &Path) -> Result<Vec<SnpWeight>> {
         .from_reader(decoder);
 
     let headers = rdr.headers()?.clone();
-    // Expect: chrom, pos, effect_allele, other_allele, effect_allele_freq, pc1..pc30
-    let n_pc_cols = headers.len().saturating_sub(5);
-    anyhow::ensure!(
-        n_pc_cols == N_PCS,
-        "expected {} PC columns in weights file, found {}",
-        N_PCS,
-        n_pc_cols
-    );
+    // Columns: chrom, pos, effect_allele, other_allele, effect_allele_freq, pc1..pcN
+    let n_pcs = headers.len().saturating_sub(5);
+    anyhow::ensure!(n_pcs > 0, "weights file has no PC columns");
 
     let mut snps = Vec::new();
     for (i, result) in rdr.records().enumerate() {
@@ -64,8 +57,8 @@ pub fn load_weights(path: &Path) -> Result<Vec<SnpWeight>> {
         let effect_allele_freq: f64 = rec[4]
             .parse()
             .with_context(|| format!("parsing effect_allele_freq at row {}", i + 1))?;
-        let mut weights = [0f64; N_PCS];
-        for j in 0..N_PCS {
+        let mut weights = vec![0f64; n_pcs];
+        for j in 0..n_pcs {
             weights[j] = rec[5 + j]
                 .parse()
                 .with_context(|| format!("parsing pc{} at row {}", j + 1, i + 1))?;
@@ -82,18 +75,24 @@ pub fn load_weights(path: &Path) -> Result<Vec<SnpWeight>> {
     Ok(snps)
 }
 
-/// Load eigenvalues from db_pca.eigenval (one per line, no header).
-/// Returns an array of length N_PCS.
-pub fn load_eigenvalues(path: &Path) -> Result<[f64; N_PCS]> {
+/// Load the first `n_pcs` eigenvalues from db_pca.eigenval (one per line, no header).
+pub fn load_eigenvalues(path: &Path, n_pcs: usize) -> Result<Vec<f64>> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let rdr = BufReader::new(file);
-    let mut eigenvalues = [0f64; N_PCS];
-    for (i, line) in rdr.lines().take(N_PCS).enumerate() {
+    let mut eigenvalues = Vec::with_capacity(n_pcs);
+    for (i, line) in rdr.lines().take(n_pcs).enumerate() {
         let line = line.with_context(|| format!("reading eigenvalue line {}", i + 1))?;
-        eigenvalues[i] = line
-            .trim()
-            .parse::<f64>()
-            .with_context(|| format!("parsing eigenvalue at line {}", i + 1))?;
+        eigenvalues.push(
+            line.trim()
+                .parse::<f64>()
+                .with_context(|| format!("parsing eigenvalue at line {}", i + 1))?,
+        );
     }
+    anyhow::ensure!(
+        eigenvalues.len() == n_pcs,
+        "eigenval file has {} values but weights file has {} PCs",
+        eigenvalues.len(),
+        n_pcs
+    );
     Ok(eigenvalues)
 }

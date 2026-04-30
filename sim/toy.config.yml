@@ -1,20 +1,20 @@
 demographic_model: m6-All-admixture.yml
 
 sequence:
-  length_bp: 10_000_000
+  length_bp: 50_000_000
   recombination_rate: 1.5e-8
   mutation_rate: 2.36e-8
   maf_threshold: 0.02
   random_seed: 42
 
 populations:
-  YRI: { simulate: 130, db_target: 100 }
-  IBS: { simulate: 130, db_target: 100 }
-  MXB: { simulate: 130, db_target: 100 }
-  PEL: { simulate: 2600, db_target: 2000, query_cases: true }
-  MXL: { simulate: 2600, db_target: 2000, query_cases: true }
-  CLM: { simulate: 2600, db_target: 2000, query_cases: true }
-  PUR: { simulate: 2600, db_target: 2000, query_cases: true }
+  YRI: { simulate: 1000, db_target: 400 }
+  IBS: { simulate: 1000, db_target: 400 }
+  MXB: { simulate: 1000, db_target: 400 }
+  PEL: { simulate: 10000, db_target: 4000, query_cases: true }
+  MXL: { simulate: 10000, db_target: 4000, query_cases: true }
+  CLM: { simulate: 10000, db_target: 4000, query_cases: true }
+  PUR: { simulate: 10000, db_target: 4000, query_cases: true }
 
 query_fraction: 0.97
 female_fraction: 0.5

@@ -1,8 +1,8 @@
 use crate::reference::GladMeta;
 use crate::sample_meta::{MetaMode, SampleMeta, Sex};
 use anyhow::{Context, Result};
-use linfa::traits::Fit;
 use linfa::DatasetBase;
+use linfa::traits::Fit;
 use linfa_clustering::GaussianMixtureModel;
 use ndarray::{Array2, ArrayView2, Axis};
 use serde::Serialize;
@@ -59,7 +59,12 @@ pub fn fit(
         let mut female_rows = Vec::new();
         let mut male_rows = Vec::new();
         for (i, id) in sample_order.iter().enumerate() {
-            if meta.map.get(id).map(|s| s.sex == Sex::Female).unwrap_or(true) {
+            if meta
+                .map
+                .get(id)
+                .map(|s| s.sex == Sex::Female)
+                .unwrap_or(true)
+            {
                 female_rows.push(i);
             } else {
                 male_rows.push(i);
@@ -163,8 +168,9 @@ fn gmm_log_likelihood(model: &GaussianMixtureModel<f64>, data: &Array2<f64>) -> 
     let mut log_norm = Vec::with_capacity(k);
     for c in 0..k {
         let prec = precisions.index_axis(Axis(0), c);
-        let log_det_prec = cholesky_log_det(prec)
-            .ok_or_else(|| anyhow::anyhow!("precision matrix not positive definite for component {}", c))?;
+        let log_det_prec = cholesky_log_det(prec).ok_or_else(|| {
+            anyhow::anyhow!("precision matrix not positive definite for component {}", c)
+        })?;
         log_norm.push(weights[c].ln() - 0.5 * (d as f64) * log_2pi + 0.5 * log_det_prec);
     }
 
@@ -172,6 +178,7 @@ fn gmm_log_likelihood(model: &GaussianMixtureModel<f64>, data: &Array2<f64>) -> 
     for i in 0..n {
         let x = data.row(i);
         let mut log_probs = Vec::with_capacity(k);
+        #[allow(clippy::needless_range_loop)]
         for c in 0..k {
             let prec = precisions.index_axis(Axis(0), c);
             let mu = means.row(c);
@@ -186,7 +193,12 @@ fn gmm_log_likelihood(model: &GaussianMixtureModel<f64>, data: &Array2<f64>) -> 
             log_probs.push(log_norm[c] - 0.5 * mahal);
         }
         let max_lp = log_probs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        total_ll += max_lp + log_probs.iter().map(|&lp| (lp - max_lp).exp()).sum::<f64>().ln();
+        total_ll += max_lp
+            + log_probs
+                .iter()
+                .map(|&lp| (lp - max_lp).exp())
+                .sum::<f64>()
+                .ln();
     }
 
     Ok(total_ll)
@@ -215,19 +227,14 @@ fn fit_gmm(data: &Array2<f64>) -> Result<FittedGmm> {
         let mut best_model_for_k: Option<GaussianMixtureModel<f64>> = None;
 
         for _ in 0..GMM_RUNS {
-            match GaussianMixtureModel::params(k)
+            if let Ok(model) = GaussianMixtureModel::params(k)
                 .max_n_iterations(GMM_MAX_ITER)
                 .fit(&dataset)
+                && let Ok(ll) = gmm_log_likelihood(&model, data)
+                && ll > best_ll
             {
-                Ok(model) => {
-                    if let Ok(ll) = gmm_log_likelihood(&model, data) {
-                        if ll > best_ll {
-                            best_ll = ll;
-                            best_model_for_k = Some(model);
-                        }
-                    }
-                }
-                Err(_) => {}
+                best_ll = ll;
+                best_model_for_k = Some(model);
             }
         }
 
@@ -243,15 +250,14 @@ fn fit_gmm(data: &Array2<f64>) -> Result<FittedGmm> {
 
     match best_model {
         Some(model) => serialize_gmm(&model, best_k, d),
-        None => Err(anyhow::anyhow!("GMM fitting failed for all k in 1..={}", MAX_COMPONENTS)),
+        None => Err(anyhow::anyhow!(
+            "GMM fitting failed for all k in 1..={}",
+            MAX_COMPONENTS
+        )),
     }
 }
 
-fn serialize_gmm(
-    gmm: &GaussianMixtureModel<f64>,
-    k: usize,
-    n_dims: usize,
-) -> Result<FittedGmm> {
+fn serialize_gmm(gmm: &GaussianMixtureModel<f64>, k: usize, n_dims: usize) -> Result<FittedGmm> {
     let weights = gmm.weights().to_vec();
     let means_arr = gmm.means();
     let covs_arr = gmm.covariances();
@@ -266,5 +272,10 @@ fn serialize_gmm(
         covariances.push(cov_rows);
     }
 
-    Ok(FittedGmm { n_components: k, weights, means, covariances })
+    Ok(FittedGmm {
+        n_components: k,
+        weights,
+        means,
+        covariances,
+    })
 }

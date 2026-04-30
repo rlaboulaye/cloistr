@@ -16,12 +16,19 @@ pub fn run(
 
     pb.set_message("Loading reference files...");
     let snps = reference::load_weights(&weights_path)?;
+    let n_pcs = snps.first().map(|s| s.weights.len()).unwrap_or(0);
     let ref_meta = reference::load_meta(&meta_path)?;
-    let eigenvalues = reference::load_eigenvalues(&eigenval_path)?;
+    anyhow::ensure!(
+        ref_meta.n_pcs == n_pcs,
+        "manifest declares n_pcs={} but weights file has {} PC columns",
+        ref_meta.n_pcs,
+        n_pcs
+    );
+    let eigenvalues = reference::load_eigenvalues(&eigenval_path, n_pcs)?;
     pb.println(format!(
         "Reference: {} SNPs, {} PCs, build {}",
         snps.len(),
-        ref_meta.n_pcs,
+        n_pcs,
         ref_meta.reference_build
     ));
 

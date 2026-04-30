@@ -42,7 +42,7 @@ def select(population: str, data_dir: Path, prefix: str) -> None:
         [
             "bcftools", "view",
             "-S", str(samples_file),
-            "--write-index",
+            "--write-index=tbi",
             "-Oz", "-o", str(out_vcf),
             str(in_vcf),
         ],

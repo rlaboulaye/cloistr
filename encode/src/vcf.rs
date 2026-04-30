@@ -1,8 +1,8 @@
 use crate::reference::SnpWeight;
 use anyhow::{Context, Result};
-use noodles::{bgzf, tabix, vcf};
 use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record::samples::Series;
+use noodles::{bgzf, tabix, vcf};
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::Path;
@@ -24,12 +24,16 @@ pub fn extract(vcf_path: &Path, snps: &[SnpWeight]) -> Result<VcfData> {
         .or_else(|_| tabix::fs::read(vcf_path.with_extension("tbi")))
         .context("loading .tbi index — ensure it is present alongside the VCF")?;
 
-    let file = std::fs::File::open(vcf_path)
-        .with_context(|| format!("opening {}", vcf_path.display()))?;
+    let file =
+        std::fs::File::open(vcf_path).with_context(|| format!("opening {}", vcf_path.display()))?;
     let mut reader = vcf::io::Reader::new(bgzf::io::Reader::new(BufReader::new(file)));
     let header = reader.read_header().context("reading VCF header")?;
 
-    let samples: Vec<String> = header.sample_names().iter().map(|s| s.to_string()).collect();
+    let samples: Vec<String> = header
+        .sample_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let n_samples = samples.len();
 
     // Group SNP indices by chromosome for one region query per chromosome
@@ -83,9 +87,9 @@ pub fn extract(vcf_path: &Path, snps: &[SnpWeight]) -> Result<VcfData> {
             let alt_allele = &alt_alleles[0];
 
             let effect_is_alt =
-                if &snp.effect_allele == alt_allele && &snp.other_allele == &ref_allele {
+                if &snp.effect_allele == alt_allele && snp.other_allele == ref_allele {
                     true
-                } else if &snp.effect_allele == &ref_allele && &snp.other_allele == alt_allele {
+                } else if snp.effect_allele == ref_allele && &snp.other_allele == alt_allele {
                     false
                 } else {
                     continue;
@@ -128,9 +132,16 @@ pub fn extract(vcf_path: &Path, snps: &[SnpWeight]) -> Result<VcfData> {
                 }
             }
 
-            results[snp_idx] = Some(SnpData { alt_count, n_alleles, dosages });
+            results[snp_idx] = Some(SnpData {
+                alt_count,
+                n_alleles,
+                dosages,
+            });
         }
     }
 
-    Ok(VcfData { samples, snps: results })
+    Ok(VcfData {
+        samples,
+        snps: results,
+    })
 }
