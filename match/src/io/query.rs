@@ -1,6 +1,6 @@
-//! Parser for glad-prep's `.glad.gz` output.
+//! Parser for cloistr-encode's `.enc.gz` output.
 //!
-//! Mirrors the schema defined in glad-prep/src/output.rs and glad-prep/src/gmm.rs.
+//! Mirrors the schema defined in encode/src/output.rs and encode/src/gmm.rs.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -19,7 +19,7 @@ pub struct Query {
     pub n_snps_attempted: usize,
     pub n_snps_found: usize,
 
-    /// Added in glad-prep when mode is sex_and_age or sex_only.
+    /// Present when mode is sex_and_age or sex_only.
     /// Optional here so we tolerate older fixtures; downstream code checks
     /// presence when sex-split is required.
     #[serde(default)]
@@ -63,7 +63,7 @@ impl Mode {
         matches!(self, Mode::SexAndAge | Mode::AgeOnly)
     }
 
-    /// snake_case label, matching glad-prep's wire format.
+    /// snake_case label, matching cloistr-encode's wire format.
     pub fn label(self) -> &'static str {
         match self {
             Mode::SexAndAge => "sex_and_age",
@@ -96,7 +96,7 @@ pub struct FittedGmm {
     pub covariances: Vec<Vec<Vec<f64>>>,
 }
 
-/// Read a gzipped JSON query file produced by glad-prep.
+/// Read a gzipped JSON query file produced by cloistr-encode.
 pub fn read<P: AsRef<Path>>(path: P) -> Result<Query> {
     let path = path.as_ref();
     let file = File::open(path).map_err(|source| Error::Io {
@@ -226,8 +226,10 @@ mod tests {
 
     #[test]
     fn parses_real_fixture() {
-        // The working-dir query.glad.gz is produced by glad-prep from simulated data.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("query.glad.gz");
+        // query.enc.gz is produced by cloistr-encode from simulated data.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("queries/query.enc.gz");
         if !path.exists() {
             // Skip silently in environments where the fixture isn't available.
             return;
@@ -236,8 +238,7 @@ mod tests {
         assert_eq!(q.version, "1.0");
         assert!(q.n_samples > 0);
         assert!(!q.counts.is_empty());
-        // The fixture is sex_and_age, so per_sex_counts must be present
-        // (regenerated after glad-prep gained the field).
+        // The fixture is sex_and_age, so per_sex_counts must be present.
         if q.distributions.mode.has_sex() {
             let psc = q
                 .per_sex_counts

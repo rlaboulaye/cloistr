@@ -85,7 +85,7 @@ struct SiteAlignment {
 fn build_site_alignment(query: &Query, pack: &DbPack) -> SiteAlignment {
     let mut by_key: HashMap<(String, u64, String, String), usize> =
         HashMap::with_capacity(query.counts.len());
-    // glad-prep convention: effect_allele = alt, other_allele = ref.
+    // cloistr-encode convention: effect_allele = alt, other_allele = ref.
     for (i, c) in query.counts.iter().enumerate() {
         by_key.insert(
             (

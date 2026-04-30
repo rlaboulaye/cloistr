@@ -1,6 +1,6 @@
 //! End-to-end pipeline smoke tests.
 //!
-//! These exercise the modules together against the real `query.glad.gz`
+//! These exercise the modules together against the real `query.enc.gz`
 //! fixture in the repository root and a synthetic `db_pack` built on the fly.
 
 use std::path::Path;
@@ -26,12 +26,12 @@ fn pick_gmm(q: &query::Query) -> &query::FittedGmm {
 
 #[test]
 fn single_gmm_pipeline_smoke() {
-    let query_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("query.glad.gz");
+    let query_path = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("queries/query.enc.gz");
     if !query_path.exists() {
-        eprintln!("skipping: query.glad.gz fixture not present");
+        eprintln!("skipping: query.enc.gz fixture not present");
         return;
     }
-    let q = query::read(&query_path).expect("parse query.glad.gz");
+    let q = query::read(&query_path).expect("parse query.enc.gz");
     let gmm = pick_gmm(&q);
     let layout =
         FeatureLayout::from_gmm(gmm, q.distributions.mode).expect("build layout from GMM");
@@ -46,12 +46,14 @@ fn single_gmm_pipeline_smoke() {
     let (female_idx, _male_idx) = features::indices_by_sex(&pack.samples);
     assert!(!female_idx.is_empty());
 
+    let pc_sd = 1.0 / (pack.manifest.n_samples as f64).sqrt();
     let f = features::build(
         &pack.samples,
         &female_idx,
         layout,
         pack.manifest.age_mean,
         pack.manifest.age_sd,
+        pc_sd,
     )
     .expect("build features");
     assert_eq!(f.shape(), &[female_idx.len(), layout.n_dims()]);
@@ -92,18 +94,18 @@ fn single_gmm_pipeline_smoke() {
     );
 }
 
-/// End-to-end on the real `query.glad.gz` (sex_and_age, 31 dims, 4 + 8
+/// End-to-end on the real `query.enc.gz` (sex_and_age, 31 dims, 4 + 8
 /// component GMMs). Builds a synthetic db_pack with sites taken from the
 /// query so the TSV writer emits joined rows; runs the full pipeline,
 /// asserts sex-ratio preservation and that both output artifacts are written.
 #[test]
 fn real_query_full_pipeline() {
-    let query_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("query.glad.gz");
+    let query_path = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("queries/query.enc.gz");
     if !query_path.exists() {
-        eprintln!("skipping: query.glad.gz fixture not present");
+        eprintln!("skipping: query.enc.gz fixture not present");
         return;
     }
-    let q = query::read(&query_path).expect("parse query.glad.gz");
+    let q = query::read(&query_path).expect("parse query.enc.gz");
     assert!(q.distributions.mode.has_sex(), "fixture is sex_and_age");
     let psc = q.per_sex_counts.expect("regenerated query carries per_sex_counts");
 

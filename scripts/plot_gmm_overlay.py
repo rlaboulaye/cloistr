@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Overlay GMM components from a query.glad.gz onto the GLAD DB PCA scatter.
+Overlay GMM components from a query.enc.gz onto the DB PCA scatter.
 
 Usage:
-    python plot_gmm_overlay.py --query query.glad.gz --db-pack db_pack/ [--out plot.png]
+    python plot_gmm_overlay.py --query query.enc.gz --db-pack db_pack/ [--out plot.png]
 """
 import argparse
 import gzip
@@ -82,9 +82,9 @@ def plot_gmm_on_ax(ax, gmm, db_df, pc_x, pc_y, title):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Overlay query GMM from a .glad.gz onto the GLAD DB PCA scatter."
+        description="Overlay query GMM from a .enc.gz onto the DB PCA scatter."
     )
-    parser.add_argument("--query", required=True, help="Path to query.glad.gz")
+    parser.add_argument("--query", required=True, help="Path to query.enc.gz")
     parser.add_argument("--db-pack", required=True, help="Path to db_pack/ directory")
     parser.add_argument("--pc-x", type=int, default=0, help="PC index for x-axis, 0-based (default: 0)")
     parser.add_argument("--pc-y", type=int, default=1, help="PC index for y-axis, 0-based (default: 1)")

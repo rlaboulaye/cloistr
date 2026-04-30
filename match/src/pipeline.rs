@@ -266,7 +266,7 @@ pub fn build_summary(
 
     Summary {
         version: SCHEMA_VERSION.into(),
-        glad_match_version: env!("CARGO_PKG_VERSION").into(),
+        cloistr_version: env!("CARGO_PKG_VERSION").into(),
         rng_seed: seed,
         input,
         sinkhorn,

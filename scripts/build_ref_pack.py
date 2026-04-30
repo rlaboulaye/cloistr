@@ -1,29 +1,27 @@
 #!/usr/bin/env python3
 """
-Prepare GLAD reference files for distribution.
+build_ref_pack.py — build a `ref_pack/` for distribution to cloistr-encode users.
 
-Inputs (run from project root):
-  db.bim                   - PLINK BIM (all db SNPs after MAF filter)
-  db_pca.eigenvec.var      - PCA projection weights (LD-pruned SNPs, no header)
-  db_meta.parquet          - DB sample metadata (for age normalization params)
-  query_meta.parquet       - Query sample metadata (to generate test TSV)
-  --db-pack <dir>          - db_pack/ directory (for per-site allele frequencies)
+Reads all metadata from a completed db_pack/manifest.json. Also requires the
+raw PLINK outputs that are not stored in db_pack.
 
-Outputs:
-  glad_pca_weights.tsv.gz  - SNP weights for CLI distribution
-  glad_meta.json           - Reference metadata (age scaling, build, etc.)
-  query_meta.tsv           - Test TSV in the format the CLI expects from users
+Inputs:
+  --db-pack <dir>          - completed db_pack/ directory
+  --bim <file>             - PLINK BIM (db.bim)
+  --eigenvec-var <file>    - PLINK eigenvec.var projection weights (db_pca.eigenvec.var)
+
+Outputs (in --out-dir, default: ref_pack/):
+  pca_weights.tsv.gz  - per-SNP PCA projection weights for cloistr-encode
+  manifest.json            - copied from db_pack/ (build, n_pcs, age scaling, n_samples)
 """
 import argparse
 import gzip
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
 import polars as pl
-
-N_PCS = 30
-PC_COLS = [f"pc{i+1}" for i in range(N_PCS)]
 
 
 def load_bim(path: Path) -> pl.DataFrame:
@@ -32,23 +30,27 @@ def load_bim(path: Path) -> pl.DataFrame:
         separator="\t",
         has_header=False,
         new_columns=["chrom", "snp_id", "cm", "pos", "a1", "a2"],
-        schema_overrides={"chrom": pl.String, "snp_id": pl.Int64, "pos": pl.Int64, "a1": pl.String, "a2": pl.String},
+        schema_overrides={
+            "chrom": pl.String, "snp_id": pl.Int64, "pos": pl.Int64,
+            "a1": pl.String, "a2": pl.String,
+        },
     )
 
 
-def load_eigenvec_var(path: Path) -> pl.DataFrame:
-    # Format: CHROM SNP_ID EFFECT_ALLELE OTHER_ALLELE PC1..PC30 (space-separated, no header)
+def load_eigenvec_var(path: Path, n_pcs: int) -> pl.DataFrame:
+    pc_cols = [f"pc{i+1}" for i in range(n_pcs)]
+    # Format: CHROM SNP_ID EFFECT_ALLELE OTHER_ALLELE PC1..PCn (space-separated, no header)
     return pl.read_csv(
         path,
         separator=" ",
         has_header=False,
-        new_columns=["chrom", "snp_id", "effect_allele", "other_allele"] + PC_COLS,
+        new_columns=["chrom", "snp_id", "effect_allele", "other_allele"] + pc_cols,
         schema_overrides={
             "chrom": pl.String,
             "snp_id": pl.Int64,
             "effect_allele": pl.String,
             "other_allele": pl.String,
-            **{c: pl.Float64 for c in PC_COLS},
+            **{c: pl.Float64 for c in pc_cols},
         },
     )
 
@@ -77,19 +79,38 @@ def compute_allele_freqs(db_pack_path: Path) -> pl.DataFrame:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--db-pack", type=Path, required=True,
-                   help="Path to db_pack/ directory (source of allele frequencies)")
+    p.add_argument("--db-pack", type=Path, default=Path("db_pack"),
+                   help="Path to completed db_pack/ directory (default: db_pack/)")
+    p.add_argument("--bim", type=Path, default=Path("pca/db.bim"),
+                   help="PLINK BIM file (default: pca/db.bim)")
+    p.add_argument("--eigenvec-var", type=Path, default=Path("pca/db_pca.eigenvec.var"),
+                   help="PLINK eigenvec.var projection weights (default: pca/db_pca.eigenvec.var)")
+    p.add_argument("--eigenval", type=Path, default=Path("pca/db_pca.eigenval"),
+                   help="PLINK eigenval file (default: pca/db_pca.eigenval)")
+    p.add_argument("--out-dir", type=Path, default=Path("ref_pack"),
+                   help="Output directory (default: ref_pack/)")
     args = p.parse_args()
 
-    root = Path(__file__).parent
+    args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading BIM...")
-    bim = load_bim(root / "db.bim")
+    print(f"Loading manifest from {args.db_pack / 'manifest.json'} ...")
+    manifest = json.loads((args.db_pack / "manifest.json").read_text())
+    n_pcs = manifest["n_pcs"]
+    print(
+        f"  build={manifest['reference_build']}, n_pcs={n_pcs}, "
+        f"n_samples={manifest['n_samples']:,}, "
+        f"age_mean={manifest['age_mean']:.3f}, age_sd={manifest['age_sd']:.3f}"
+    )
+
+    pc_cols = [f"pc{i+1}" for i in range(n_pcs)]
+
+    print(f"\nLoading BIM from {args.bim} ...")
+    bim = load_bim(args.bim)
     print(f"  {len(bim):,} SNPs")
 
-    print("Loading eigenvec.var...")
-    evec = load_eigenvec_var(root / "db_pca.eigenvec.var")
-    print(f"  {len(evec):,} SNPs, {len(evec.columns) - 4} PCs")
+    print(f"Loading eigenvec.var from {args.eigenvec_var} ...")
+    evec = load_eigenvec_var(args.eigenvec_var, n_pcs)
+    print(f"  {len(evec):,} SNPs, {n_pcs} PCs")
 
     # Join eigenvec.var onto BIM to resolve genomic positions
     weights = evec.join(bim.select(["snp_id", "pos"]), on="snp_id", how="left")
@@ -113,9 +134,9 @@ def main():
         print(f"  WARNING: {len(bad):,} SNPs have allele mismatches between eigenvec.var and BIM")
         print(bad.head(5))
     else:
-        print(f"  Allele check passed")
+        print("  Allele check passed")
 
-    weights = weights.select(["chrom", "pos", "effect_allele", "other_allele"] + PC_COLS)
+    weights = weights.select(["chrom", "pos", "effect_allele", "other_allele"] + pc_cols)
 
     # Compute per-site allele frequencies from geno_ld_indep.parquet
     print("\nComputing allele frequencies from db_pack...")
@@ -145,40 +166,17 @@ def main():
         weights = weights.filter(pl.col("effect_allele_freq").is_not_null())
     print(f"  Frequencies computed for {len(weights):,} SNPs")
 
-    out_cols = ["chrom", "pos", "effect_allele", "other_allele", "effect_allele_freq"] + PC_COLS
-    out_path = root / "glad_pca_weights.tsv.gz"
-    with gzip.open(out_path, "wb") as f:
+    out_cols = ["chrom", "pos", "effect_allele", "other_allele", "effect_allele_freq"] + pc_cols
+    weights_path = args.out_dir / "pca_weights.tsv.gz"
+    with gzip.open(weights_path, "wb") as f:
         weights.select(out_cols).write_csv(f, separator="\t")
-    print(f"\nWrote {out_path.name}: {len(weights):,} SNPs x {N_PCS} PCs ({out_path.stat().st_size / 1e6:.1f} MB)")
+    print(f"\nWrote {weights_path}: {len(weights):,} SNPs x {n_pcs} PCs ({weights_path.stat().st_size / 1e6:.1f} MB)")
 
-    # Age scaling parameters from the db
-    print("\nComputing age scaling from db_meta...")
-    db_meta = pl.read_parquet(root / "db_meta.parquet")
-    age_mean = float(db_meta["age"].mean())
-    age_sd = float(db_meta["age"].std())
-    print(f"  n={len(db_meta):,}  age_mean={age_mean:.3f}  age_sd={age_sd:.3f}")
+    shutil.copy(args.db_pack / "manifest.json", args.out_dir / "manifest.json")
+    print(f"Copied manifest.json → {args.out_dir / 'manifest.json'}")
 
-    n_db = len(db_meta)
-    glad_meta = {
-        "reference_build": "GRCh38",
-        "n_pcs": N_PCS,
-        "n_snps": len(weights),
-        "n_db_samples": n_db,
-        "age_mean": age_mean,
-        "age_sd": age_sd,
-    }
-    meta_path = root / "glad_meta.json"
-    with open(meta_path, "w") as f:
-        json.dump(glad_meta, f, indent=2)
-    print(f"Wrote {meta_path.name}")
-
-    # Test TSV from query_meta (columns the CLI expects from users)
-    print("\nGenerating query_meta.tsv...")
-    query_meta = pl.read_parquet(root / "query_meta.parquet")
-    tsv_path = root / "query_meta.tsv"
-    query_meta.select(["sample_id", "sex", "age"]).write_csv(tsv_path, separator="\t")
-    print(f"Wrote {tsv_path.name}: {len(query_meta):,} samples")
-    print(f"  sex distribution: {query_meta['sex'].value_counts().sort('sex').to_dict(as_series=False)}")
+    shutil.copy(args.eigenval, args.out_dir / "db_pca.eigenval")
+    print(f"Copied {args.eigenval} → {args.out_dir / 'db_pca.eigenval'}")
 
 
 if __name__ == "__main__":

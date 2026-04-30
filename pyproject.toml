@@ -1,0 +1,22 @@
+[project]
+name = "cloistr-scripts"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "polars[rtcompat]",
+    "pyarrow",
+    "cyvcf2",
+    "matplotlib",
+]
+
+[tool.setuptools]
+packages = []
+
+[project.optional-dependencies]
+sim = [
+    "msprime",
+    "demes",
+    "tskit",
+    "pyyaml",
+]

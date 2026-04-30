@@ -20,7 +20,7 @@ pub const SCHEMA_VERSION: &str = "1.0";
 #[derive(Serialize, Debug)]
 pub struct Summary {
     pub version: String,
-    pub glad_match_version: String,
+    pub cloistr_version: String,
     pub rng_seed: u64,
     pub input: InputSummary,
     pub sinkhorn: Vec<SinkhornSummary>,
@@ -240,7 +240,7 @@ mod tests {
         let sel = build_selected_summary(&[0, 1, 2], &samples, &default_age_bins(), 1);
         let summary = Summary {
             version: SCHEMA_VERSION.into(),
-            glad_match_version: "0.1.0".into(),
+            cloistr_version: "0.1.0".into(),
             rng_seed: 42,
             input: InputSummary {
                 query_n_samples: 100,

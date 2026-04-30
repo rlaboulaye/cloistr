@@ -1,8 +1,8 @@
 //! Feature matrix construction for db samples.
 //!
-//! Mirrors `glad-prep/src/gmm.rs:89-117`: features are `[PC_0, …, PC_{k-1}]`
+//! Mirrors `encode/src/gmm.rs:89-117`: features are `[PC_0, …, PC_{k-1}]`
 //! where `k = n_pcs_used`, optionally followed by a z-scored age using
-//! glad_meta's `age_mean` / `age_sd`. This matches the standardization the
+//! the manifest's `age_mean` / `age_sd`. This matches the standardization the
 //! query side applied when fitting the GMM, so db and GMM live in the same
 //! feature space.
 

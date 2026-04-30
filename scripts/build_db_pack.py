@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-build_db_pack.py — convert raw glad artifacts into a glad-match `db_pack/`.
-
-Convenience-only: the real glad-match crate assumes its input is already a
-preprocessed db_pack. In production the preprocessing happens elsewhere.
+build_db_pack.py — build a `db_pack/` from PLINK PCA outputs and a VCF.
 
 Outputs (in --out-dir):
     manifest.json          — version, reference_build, n_samples, n_pcs,
@@ -29,7 +26,7 @@ Conventions:
   - A variant is included iff it is single-allelic in the VCF (one ALT).
   - Dosage orientation follows the VCF's REF/ALT. For ld-indep sites whose
     bim alleles disagree with the VCF, `ld_indep = True` is still set, but
-    glad-prep's query side labels those sites with the bim's alleles, so the
+    cloistr-encode labels those sites with the bim's alleles, so the
     refinement inner-join will drop them automatically. This keeps the VCF
     as the single source of truth for db dosages.
   - cyvcf2 gt_types: 0 = HOM_REF, 1 = HET, 2 = UNKNOWN (missing), 3 = HOM_ALT.
@@ -40,13 +37,12 @@ Dependencies (install into .venv with uv):
 
 Usage:
     python build_db_pack.py \\
-        --eigenvec db_pca.eigenvec \\
-        --meta-parquet db_meta.parquet \\
-        --bim db.bim \\
-        --prune-in db.prune.in \\
-        --vcf db.vcf.gz \\
-        --glad-meta /path/to/glad_meta.json \\
-        --out-dir db_pack
+        --eigenvec pca/db_pca.eigenvec \\
+        --meta-parquet raw/db_meta.parquet \\
+        --bim pca/db.bim \\
+        --prune-in pca/db.prune.in \\
+        --vcf raw/db.vcf.gz \\
+        --out-dir db_pack/
 """
 
 from __future__ import annotations
@@ -187,23 +183,17 @@ def write_samples_parquet(
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--eigenvec", type=Path, required=True)
-    p.add_argument("--meta-parquet", type=Path, required=True)
-    p.add_argument("--bim", type=Path, required=True)
-    p.add_argument("--prune-in", type=Path, required=True)
-    p.add_argument("--vcf", type=Path, required=True)
-    p.add_argument("--glad-meta", type=Path, required=True)
-    p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument("--eigenvec", type=Path, default=Path("pca/db_pca.eigenvec"))
+    p.add_argument("--meta-parquet", type=Path, default=Path("raw/db_meta.parquet"))
+    p.add_argument("--bim", type=Path, default=Path("pca/db.bim"))
+    p.add_argument("--prune-in", type=Path, default=Path("pca/db.prune.in"))
+    p.add_argument("--vcf", type=Path, default=Path("raw/db.vcf.gz"))
+    p.add_argument("--reference-build", default="GRCh38",
+                   help="Genome reference build label (default: GRCh38)")
+    p.add_argument("--out-dir", type=Path, default=Path("db_pack"))
     args = p.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-
-    glad_meta = json.loads(args.glad_meta.read_text())
-    print(
-        f"glad_meta: build={glad_meta['reference_build']}, "
-        f"n_pcs={glad_meta['n_pcs']}, age_mean={glad_meta['age_mean']:.3f}, "
-        f"age_sd={glad_meta['age_sd']:.3f}"
-    )
 
     print(f"loading {args.eigenvec} ...")
     sample_ids, pca = read_eigenvec(args.eigenvec)
@@ -213,6 +203,10 @@ def main() -> int:
     print(f"loading {args.meta_parquet} ...")
     meta_df = pl.read_parquet(args.meta_parquet)
     meta_df = reorder_meta(meta_df, sample_ids)
+
+    age_mean = float(meta_df["age"].mean())
+    age_sd = float(meta_df["age"].std())
+    print(f"  age_mean={age_mean:.3f}  age_sd={age_sd:.3f}")
 
     print("writing samples.parquet ...")
     write_samples_parquet(
@@ -360,13 +354,13 @@ def main() -> int:
     print("writing manifest.json ...")
     manifest = {
         "version": "1.0",
-        "reference_build": glad_meta["reference_build"],
+        "reference_build": args.reference_build,
         "n_samples": n_samples,
         "n_pcs": n_pcs,
         "n_sites": site_idx,
         "n_sites_ld_indep": n_ld_indep_emitted,
-        "age_mean": float(glad_meta["age_mean"]),
-        "age_sd": float(glad_meta["age_sd"]),
+        "age_mean": age_mean,
+        "age_sd": age_sd,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     (args.out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))

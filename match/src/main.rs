@@ -6,17 +6,17 @@ use clap::{Args, Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use glad_match::filter::FilterSpec;
-use glad_match::io::{db_pack, output_tsv, query, selected_tsv, summary_json};
-use glad_match::ot::SinkhornParams;
-use glad_match::pipeline::{self, MatchParams};
-use glad_match::refine::RefineParams;
+use cloistr::filter::FilterSpec;
+use cloistr::io::{db_pack, output_tsv, query, selected_tsv, summary_json};
+use cloistr::ot::SinkhornParams;
+use cloistr::pipeline::{self, MatchParams};
+use cloistr::refine::RefineParams;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "glad-match",
+    name = "cloistr",
     version,
-    about = "Match genomic controls from the GLAD DB"
+    about = "Select ancestry-, age-, and sex-matched genomic controls from a reference database"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -31,7 +31,7 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct RunArgs {
-    /// Path to the gzipped JSON query produced by glad-prep.
+    /// Path to the gzipped JSON query produced by cloistr-encode.
     #[arg(long)]
     query: PathBuf,
     /// Directory containing the preprocessed db_pack artifacts.

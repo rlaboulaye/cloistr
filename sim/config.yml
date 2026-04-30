@@ -1,0 +1,41 @@
+demographic_model: m6-All-admixture.yml
+
+sequence:
+  length_bp: 200_000_000
+  recombination_rate: 1.5e-8
+  mutation_rate: 2.36e-8
+  maf_threshold: 0.02
+  random_seed: 42
+
+populations:
+  # simulate: total individuals drawn from the model (oversampled for DB downsampling headroom)
+  # db_target: how many individuals to include in the final DB
+  # query_cases: if true, cases from this population are routed to the query cohort
+  YRI: { simulate: 1300, db_target: 1000 }
+  IBS: { simulate: 1300, db_target: 1000 }
+  MXB: { simulate: 1300, db_target: 1000 }
+  PEL: { simulate: 24250, db_target: 10000, query_cases: true }
+  MXL: { simulate: 24250, db_target: 10000, query_cases: true }
+  CLM: { simulate: 24250, db_target: 10000, query_cases: true }
+  PUR: { simulate: 24250, db_target: 10000, query_cases: true }
+
+# Fraction of query-population cases routed to the query set;
+# the remainder stays in the DB as realistic noise.
+query_fraction: 0.97
+
+# Age distribution: LogNormal(ln(age_median), age_sigma) clipped to [age_min, age_max].
+age:
+  median: 55
+  sigma: 0.25
+  min: 30
+  max: 85
+
+# One entry per phenotype. Each produces a case_* and liability_* column in
+# the output parquets. The first phenotype determines query case routing.
+phenotypes:
+  - name: pheno1
+    heritability: 0.25
+    prevalence: 0.03
+    n_causal_snps: 500
+    beta_sex: 0.3    # liability effect for male (sex=1)
+    beta_age: 0.02   # liability effect per year (age centered)

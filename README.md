@@ -1,92 +1,117 @@
-# CLOISTR <br> <sub>Controls via Latent-space Optimization using Inferred Statistical TRansport</sub>
+# CLOISTR
+**C**ontrols via **L**atent-space **O**ptimization using **I**nferred **S**tatistical **TR**ansport
 
-Select ancestry-, age-, and sex-matched genomic controls from the GLAD database for a query cohort, returning only aggregate allele and genotype counts — no individual-level data crosses either direction.
+Select ancestry-, age-, and sex-matched genomic controls from a reference database for a query cohort, returning only aggregate allele and genotype counts — no individual-level data crosses either direction.
+
+## Overview
+
+CLOISTR has two binaries with distinct roles:
+
+| Binary | Role | Who runs it |
+|---|---|---|
+| `cloistr` | Server-side matching — takes an encoded query, selects controls from a `db_pack`, returns aggregate counts | Database operator |
+| `cloistr-encode` | Client-side encoding — takes a cohort VCF, projects to PC space, fits a GMM, and packages a query archive | Researcher |
 
 The typical workflow is:
 
-1. Run [glad-prep](https://github.com/rlaboulaye/glad-prep) on your cohort to produce a `.glad.gz` query file (per-site allele counts + a fitted GMM over PCA/age space).
-2. Run `glad-match` against the GLAD `db_pack` to select matched controls.
-3. Use the output TSV alongside your own cohort's counts for downstream GWAS or other analyses.
+1. The database operator builds a `db_pack` from their VCF and runs `cloistr`.
+2. The operator distributes a `ref_pack` + the `cloistr-encode` binary to researchers.
+3. A researcher runs `cloistr-encode` on their cohort VCF to produce a `query.enc.gz` archive.
+4. The researcher sends `query.enc.gz` to the operator (or a web service wrapping `cloistr`).
+5. The operator runs `cloistr` and returns aggregate control counts — no individual records leave.
 
-## Setup
+See [ALGORITHM.md](ALGORITHM.md) for a description of the optimal transport candidate selection and χ² greedy refinement.
+
+## What you need
+
+To run the database side you need:
+
+- **`raw/db.vcf.gz`** — bgzipped, tabix-indexed VCF of all database samples (`.tbi` alongside).
+- **`raw/db_meta.parquet`** — per-sample metadata with columns `sample_id`, `sex` (0/1), `age`, and optionally `population`.
+
+If you do not have real data yet, `sim/` provides a simulation pipeline that writes these files automatically. See [sim/README.md](sim/README.md).
+
+## Building
 
 ```bash
+# Both binaries
 cargo build --release
-# binary at target/release/glad-match
+# Binaries at target/release/cloistr and target/release/cloistr-encode
+
+# Or build individually
+cargo build --release -p cloistr
+cargo build --release -p cloistr-encode
 ```
 
-The preprocessing script (`build_db_pack.py`) requires Python with `numpy`, `pyarrow`, `cyvcf2`, and `polars`:
+Python scripts require a virtual environment with core dependencies:
 
 ```bash
-uv pip install numpy pyarrow cyvcf2 polars
+uv pip install .
+# For simulation only, additionally:
+uv pip install ".[sim]"
 ```
 
-## The `db_pack` format
+## Database setup pipeline
 
-`glad-match` consumes a preprocessed `db_pack/` directory with the following files:
+### 0. Prepare raw inputs
 
-| File | Description |
-|---|---|
-| `manifest.json` | Shape constants (`n_samples`, `n_pcs`, `n_sites`, `n_sites_ld_indep`) and age normalization parameters (`age_mean`, `age_sd`) |
-| `samples.parquet` | Per-sample metadata: `sample_id`, `sex` (0=F, 1=M), `age`, `population`, `pc0`…`pc{n_pcs-1}` |
-| `sites.parquet` | All db sites: `chrom`, `pos`, `ref`, `alt`, `ld_indep` |
-| `geno_dense.parquet` | Site-major dosage matrix (one row per site, one `uint8` column per sample named `sample_0`…`sample_{n-1}`; dosages 0/1/2/255). Used by the output writer for full-site coverage. |
-| `geno_ld_indep.parquet` | Same layout as `geno_dense.parquet`, restricted to the `n_sites_ld_indep` rows where `ld_indep = true`. Used by the refinement stage with column projection onto the candidate pool. |
+Place your database VCF and metadata in `raw/`:
 
-### Building a `db_pack` from raw data
-
-`build_db_pack.py` converts the standard GLAD DB artifacts into this format. It expects:
-
-- A **bgzipped, tabix-indexed VCF** of all samples (`db.vcf.gz`)
-- **PLINK PCA outputs**: `.eigenvec` (PC coordinates)
-- **PLINK LD-pruning outputs**: `.bim` and `.prune.in` (the kept-SNP list)
-- A **sample metadata Parquet** file with columns `sample_id`, `sex`, `age`, `population`
-- A **glad-prep metadata JSON** (`glad_meta.json`) containing `reference_build`, `n_pcs`, `age_mean`, and `age_sd`
-
-```bash
-python build_db_pack.py \
-  --eigenvec     db_pca.eigenvec \
-  --meta-parquet db_meta.parquet \
-  --bim          db.bim \
-  --prune-in     db.prune.in \
-  --vcf          db.vcf.gz \
-  --glad-meta    glad_meta.json \
-  --out-dir      db_pack/
+```
+raw/db.vcf.gz        # bgzipped, tabix-indexed
+raw/db.vcf.gz.tbi
+raw/db_meta.parquet  # sample_id, sex, age, population
 ```
 
-## Running `glad-match`
+If using the simulation, `python sim/simulate_db.py` writes these files for you.
+
+### 1. Run PCA
 
 ```bash
-glad-match run \
-  --query      query.glad.gz \
+bash scripts/plink_pca.sh   # requires plink 1.9; edit NTHREADS as needed
+```
+
+Outputs: `pca/db.bim`, `pca/db.prune.in`, `pca/db_pca.eigenvec`, `pca/db_pca.eigenvec.var`, `pca/db_pca.eigenval`.
+
+### 2. Build `db_pack`
+
+```bash
+python scripts/build_db_pack.py   # reads from raw/ and pca/; writes to db_pack/
+```
+
+### 3. Build `ref_pack` (for distribution to researchers)
+
+```bash
+python scripts/build_ref_pack.py   # reads from db_pack/ and pca/; writes to ref_pack/
+```
+
+Distribute `ref_pack/` and the `cloistr-encode` binary to researchers. See [encode/README.md](encode/README.md) for the researcher-facing workflow.
+
+## Running `cloistr`
+
+```bash
+cloistr run \
+  --query      queries/query.enc.gz \
   --db-pack    db_pack/ \
   --n-controls 500 \
-  --out        controls.tsv.gz \
-  --summary    summary.json \
-  [--selected-out selected.tsv]   # internal use only; see below
+  --out        controls/controls.tsv.gz \
+  --summary    controls/summary.json
 ```
 
-Run `glad-match run --help` for the full parameter list.
+Run `cloistr run --help` for the full parameter list.
 
 ### Outputs
 
-**`controls.tsv.gz`** — gzipped TSV of per-site aggregate control counts, one row per db site:
+**`controls.tsv.gz`** — gzipped TSV of per-site aggregate control counts:
 
 | Column | Description |
 |---|---|
 | `chrom`, `pos`, `ref`, `alt` | Site coordinates |
 | `AC_ctrl` | Alt allele count across selected controls |
 | `AN_ctrl` | Total allele count (excludes missing calls) |
-| `n_00_ctrl` | HOM REF genotype count |
-| `n_01_ctrl` | HET genotype count |
-| `n_11_ctrl` | HOM ALT genotype count |
-| `n_miss_ctrl` | Missing-call count |
+| `n_00_ctrl`, `n_01_ctrl`, `n_11_ctrl`, `n_miss_ctrl` | Genotype counts |
 
-`AC_ctrl = n_01 + 2 × n_11`; `AN_ctrl = 2 × (n_00 + n_01 + n_11)`.
-
-**`summary.json`** — pipeline diagnostics and aggregate demographics of the selected controls: Sinkhorn convergence, initial/final genomic control λ, per-population counts, and an age histogram (cells with fewer than 5 individuals are suppressed for privacy).
-
-**`--selected-out selected.tsv`** (optional) — plain TSV listing the selected controls' db indices and metadata (`sample_idx`, `sample_id`, `sex`, `age`, `population`). Intended for internal QC only; not returned to external users.
+**`summary.json`** — pipeline diagnostics: Sinkhorn convergence, initial/final genomic control λ, per-population counts, and a k-anonymized age histogram.
 
 ## Key tuning parameters
 
@@ -95,17 +120,13 @@ Run `glad-match run --help` for the full parameter list.
 | `--n-controls` | — | Number of controls to select (required) |
 | `--pool-factor` | 4 | Candidate pool size as a multiple of `n-controls` |
 | `--seed` | 42 | RNG seed for reproducibility |
-| `--refine-tol` | 0.01 | Stop refinement when `|log λ| < tol` |
+| `--refine-tol` | 0.01 | Stop refinement when `\|log λ\| < tol` |
 | `--sinkhorn-eps` | auto | OT regularization ε (0 → `median(cost)/50`) |
 | `--sinkhorn-rho` | 0.1 | Marginal-KL penalty; lower = more mass may be discarded |
 | `--exclude-population` | — | Comma-separated population labels to exclude |
 
 ## Privacy
 
-The user submits only aggregates: per-site alt/total allele counts and a GMM fit over PCA (and optionally age) space. No individual genotypes, phenotype labels, or PCA projections leave the user's environment.
+The researcher submits only aggregates: per-site alt/total allele counts and a GMM fit over PCA (and optionally age) space. No individual genotypes, phenotype labels, or PCA coordinates leave the researcher's environment.
 
-`glad-match` returns only aggregates: per-site genotype counts over the selected control set, and a k-anonymized demographic summary. No individual db sample records are included in any output returned to the user. The optional `--selected-out` file is for internal operator use only.
-
-## Algorithm
-
-See [ALGORITHM.md](ALGORITHM.md) for a detailed description of the optimal transport candidate selection, incremental χ² greedy refinement, and the design choices behind the genomic control λ objective.
+`cloistr` returns only aggregates: per-site genotype counts over the selected control set, and a k-anonymized demographic summary. The optional `--selected-out` flag writes individual-level records for internal operator QC only.
