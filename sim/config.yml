@@ -23,6 +23,9 @@ populations:
 # the remainder stays in the DB as realistic noise.
 query_fraction: 0.97
 
+# Fraction of simulated individuals assigned female (sex=0).
+female_fraction: 0.5
+
 # Age distribution: LogNormal(ln(age_median), age_sigma) clipped to [age_min, age_max].
 age:
   median: 55

@@ -4,6 +4,8 @@ Simulation pipeline for generating synthetic genomic datasets to evaluate the cl
 
 This is an optional evaluation tool — it is not required to run `cloistr` or `cloistr-encode` with real data.
 
+> **All commands in this document should be run from the repository root**, not from within `sim/`. This keeps default output paths (`raw/`, `pca/`, `db_pack/`, etc.) consistent with the rest of the pipeline.
+
 ---
 
 ## Purpose
@@ -22,12 +24,6 @@ The default demographic model is taken from Medina-Muñoz et al. (2023), who inf
 
 Reference repository (see README for full model description):
 https://github.com/santiago1234/mxb-genomes
-
-### Background: Gravel / Browning model
-
-The hand-rolled demographic model previously used in `simulate_db.py` is based on the three-population out-of-Africa model from **Gravel et al. (2011)**, adapted by **Browning et al. (2018)** to include an admixed American population. It uses YRI (African), IBS (European), and MXB (Native American proxy) as ancestral sources for four Latin American populations: PEL, MXL, CLM, and PUR.
-
-This model remains documented in the code for reference but the `m6-All-admixture.yml` model should be preferred for new evaluations.
 
 ---
 
@@ -66,7 +62,14 @@ uv pip install ".[sim]"   # from the repository root
 Then run the simulation:
 
 ```bash
-python sim/simulate_db.py   # writes to raw/: db.vcf.gz, query.vcf.gz, db_meta.parquet, query_meta.parquet
+python sim/simulate.py   # writes to raw/: db.vcf.gz, query.vcf.gz, db_meta.parquet, query_meta.parquet, causal_variants.parquet
+```
+
+If the query cohort contains multiple populations and you want to restrict to one,
+use `subset_query.py` before encoding:
+
+```bash
+python sim/subset_query.py --population MXL   # writes raw/mxl_query.vcf.gz + metadata
 ```
 
 After simulation, continue with the standard database setup pipeline in `scripts/`:
@@ -87,10 +90,12 @@ cloistr run --query queries/query.enc.gz --db-pack db_pack/ --n-controls 500 \
 
 | File | Contents |
 |---|---|
-| `raw/db.vcf.gz` | Genotypes for DB individuals (bgzip compressed, tabix indexed) |
-| `raw/db_meta.parquet` | `sample_id`, `population`, `sex`, `age`, one `case_*` column per phenotype, `liability_*` per phenotype |
-| `raw/query.vcf.gz` | Genotypes for query cases |
+| `raw/db.vcf.gz` (+ `.tbi`) | Genotypes for DB individuals |
+| `raw/db_meta.parquet` | `sample_id`, `population`, `sex`, `age`, one `case_*` and `liability_*` column per phenotype |
+| `raw/query.vcf.gz` (+ `.tbi`) | Genotypes for query cases |
 | `raw/query_meta.parquet` | Same columns as `db_meta.parquet` |
+| `raw/query_sample_meta.tsv` | `sample_id`, `sex`, `age` — direct input for `cloistr-encode --sample-meta` |
+| `raw/causal_variants.parquet` | `phenotype`, `pos`, `ref`, `alt`, `effect` — true causal SNPs for GWAS benchmarking |
 
 Both VCFs contain identical sites, which is required for projecting query samples onto a PCA space built from the DB.
 
@@ -115,5 +120,3 @@ Cases are individuals whose liability exceeds the `(1 − prevalence)` quantile 
 ## References
 
 - Medina-Muñoz et al., 2023. https://github.com/santiago1234/mxb-genomes
-- Browning et al., 2018. http://dx.doi.org/10.1371/journal.pgen.1007385
-- Gravel et al., 2011. https://doi.org/10.1073/pnas.1019276108

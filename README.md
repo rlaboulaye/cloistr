@@ -63,7 +63,7 @@ raw/db.vcf.gz.tbi
 raw/db_meta.parquet  # sample_id, sex, age, population
 ```
 
-If using the simulation, `python sim/simulate_db.py` writes these files for you.
+If using the simulation, `python sim/simulate.py` writes these files for you.
 
 ### 1. Run PCA
 

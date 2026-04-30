@@ -6,7 +6,7 @@ from the path given in config['demographic_model'] (relative to the config
 file) using the demes library.
 
 Usage:
-    python sim/simulate_db.py [--config sim/config.yml] [--out-dir raw/]
+    python sim/simulate.py [--config sim/config.yml] [--out-dir raw/]
 """
 import argparse
 import io
@@ -83,10 +83,12 @@ def simulate(config: dict, config_dir: Path, out_dir: Path, prefix: str = "") ->
         rng.lognormal(np.log(age_cfg["median"]), age_cfg["sigma"], n_ind),
         age_cfg["min"], age_cfg["max"],
     )
-    sex = rng.integers(0, 2, n_ind)  # 0=female, 1=male
+    female_fraction = config.get("female_fraction", 0.5)
+    sex = rng.choice([0, 1], size=n_ind, p=[female_fraction, 1 - female_fraction])
 
     # ── Phenotypes ────────────────────────────────────────────────────────────
     pheno_results: list[tuple[str, np.ndarray, np.ndarray]] = []
+    causal: dict[str, list] = {"phenotype": [], "pos": [], "ref": [], "alt": [], "effect": []}
     for pheno in config["phenotypes"]:
         n_causal = min(pheno["n_causal_snps"], n_sites)
         causal_ids = set(rng.choice(n_sites, size=n_causal, replace=False).tolist())
@@ -96,6 +98,11 @@ def simulate(config: dict, config_dir: Path, out_dir: Path, prefix: str = "") ->
             if var.site.id in causal_ids:
                 effect = rng.standard_normal()
                 G += effect * var.genotypes.reshape(n_ind, 2).sum(axis=1)
+                causal["phenotype"].append(pheno["name"])
+                causal["pos"].append(int(var.site.position))
+                causal["ref"].append(var.alleles[0])
+                causal["alt"].append(var.alleles[1])
+                causal["effect"].append(effect)
 
         h2 = pheno["heritability"]
         g_std = G.std()
@@ -151,8 +158,12 @@ def simulate(config: dict, config_dir: Path, out_dir: Path, prefix: str = "") ->
                 proc.stdin.close()
 
     print("Writing VCFs...")
-    write_vcf_gz(query_idx, out_dir / f"{prefix}query.vcf.gz")
-    write_vcf_gz(db_idx,    out_dir / f"{prefix}db.vcf.gz")
+    for path, individuals in [
+        (out_dir / f"{prefix}query.vcf.gz", query_idx),
+        (out_dir / f"{prefix}db.vcf.gz",    db_idx),
+    ]:
+        write_vcf_gz(individuals, path)
+        subprocess.run(["tabix", "-p", "vcf", str(path)], check=True)
 
     # ── Metadata ──────────────────────────────────────────────────────────────
     def build_meta(indices) -> pl.DataFrame:
@@ -172,6 +183,7 @@ def simulate(config: dict, config_dir: Path, out_dir: Path, prefix: str = "") ->
 
     query_meta.write_parquet(out_dir / f"{prefix}query_meta.parquet")
     db_meta.write_parquet(out_dir / f"{prefix}db_meta.parquet")
+    pl.DataFrame(causal).write_parquet(out_dir / f"{prefix}causal_variants.parquet")
 
     # TSV of sample_id/sex/age for cloistr-encode --sample-meta
     (

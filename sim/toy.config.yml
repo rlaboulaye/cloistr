@@ -1,0 +1,34 @@
+demographic_model: m6-All-admixture.yml
+
+sequence:
+  length_bp: 10_000_000
+  recombination_rate: 1.5e-8
+  mutation_rate: 2.36e-8
+  maf_threshold: 0.02
+  random_seed: 42
+
+populations:
+  YRI: { simulate: 130, db_target: 100 }
+  IBS: { simulate: 130, db_target: 100 }
+  MXB: { simulate: 130, db_target: 100 }
+  PEL: { simulate: 2600, db_target: 2000, query_cases: true }
+  MXL: { simulate: 2600, db_target: 2000, query_cases: true }
+  CLM: { simulate: 2600, db_target: 2000, query_cases: true }
+  PUR: { simulate: 2600, db_target: 2000, query_cases: true }
+
+query_fraction: 0.97
+female_fraction: 0.5
+
+age:
+  median: 55
+  sigma: 0.25
+  min: 30
+  max: 85
+
+phenotypes:
+  - name: pheno1
+    heritability: 0.25
+    prevalence: 0.03
+    n_causal_snps: 500
+    beta_sex: 0.3
+    beta_age: 0.02

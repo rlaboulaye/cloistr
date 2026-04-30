@@ -25,7 +25,7 @@ Requires `plink` (v1.9) and `bgzip`/`tabix` (htslib) on your PATH.
 ## Step 1 — Simulate
 
 ```bash
-python sim/simulate_db.py \
+python sim/simulate.py \
   --config  sim/toy.config.yml \
   --out-dir raw \
   --prefix  toy_
@@ -40,13 +40,24 @@ Writes to `raw/`:
 | `toy_query.vcf.gz` | Query cohort genotypes |
 | `toy_query_meta.parquet` | Same columns as toy_db_meta.parquet |
 | `toy_query_sample_meta.tsv` | sample_id, sex, age — input for `cloistr-encode --sample-meta` |
+| `toy_causal_variants.parquet` | phenotype, pos, ref, alt, effect — true causal SNPs for GWAS benchmarking |
 
-## Step 2 — Index VCFs
+VCF `.tbi` indexes are created automatically alongside each `.vcf.gz`.
+
+## Step 2 — Select query population
+
+The simulated query cohort contains multiple admixed populations. For this
+walkthrough we use MXL only:
 
 ```bash
-tabix -p vcf raw/toy_db.vcf.gz
-tabix -p vcf raw/toy_query.vcf.gz
+python sim/subset_query.py \
+  --population MXL \
+  --data-dir   raw \
+  --prefix     toy_
 ```
+
+Writes `raw/toy_mxl_query.vcf.gz` (+ `.tbi`), `raw/toy_mxl_query_meta.parquet`,
+and `raw/toy_mxl_query_sample_meta.tsv`.
 
 ## Step 3 — PCA
 
@@ -92,11 +103,11 @@ python scripts/build_ref_pack.py \
 
 ```bash
 cloistr-encode prepare \
-  --vcf         raw/toy_query.vcf.gz \
+  --vcf         raw/toy_mxl_query.vcf.gz \
   --weights     toy_ref_pack/pca_weights.tsv.gz \
   --meta        toy_ref_pack/manifest.json \
   --eigenval    toy_ref_pack/db_pca.eigenval \
-  --sample-meta raw/toy_query_sample_meta.tsv \
+  --sample-meta raw/toy_mxl_query_sample_meta.tsv \
   --output      queries/toy.enc.gz
 ```
 
